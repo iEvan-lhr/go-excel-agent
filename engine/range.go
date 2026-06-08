@@ -105,7 +105,7 @@ func (e *Engine) resolveTargets(sheet *workbook.Sheet, scope Scope, targetColumn
 		if len(sheet.Rows) == 0 {
 			return fmt.Errorf("找不到表头，无法定位目标列 '%s'", targetColumn)
 		}
-		colIdx := findColumnIndex(sheet.Rows[0], targetColumn)
+		colIdx := findColumnIndexInSheet(sheet, targetColumn)
 		if colIdx == -1 {
 			return fmt.Errorf("找不到目标列 '%s'", targetColumn)
 		}

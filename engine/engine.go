@@ -288,7 +288,7 @@ func (e *Engine) Aggregate(ctx context.Context, req AggregateRequest) (float64, 
 		return 0, nil
 	}
 
-	colIdx := findColumnIndex(sheet.Rows[0], req.Column)
+	colIdx := findColumnIndexInSheet(sheet, req.Column)
 	if colIdx == -1 {
 		return 0, fmt.Errorf("找不到列: %s", req.Column)
 	}

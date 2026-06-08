@@ -22,7 +22,7 @@ func searchSheet(sheet *workbook.Sheet, query, searchColumn string) ([]workbook.
 		if len(sheet.Rows) == 0 {
 			return nil, fmt.Errorf("sheet '%s' 没有表头", sheet.Name)
 		}
-		searchColIdx = findColumnIndex(sheet.Rows[0], searchColumn)
+		searchColIdx = findColumnIndexInSheet(sheet, searchColumn)
 		if searchColIdx == -1 {
 			return nil, fmt.Errorf("找不到搜索列: %s", searchColumn)
 		}
@@ -78,6 +78,36 @@ func findColumnIndex(header []string, name string) int {
 	for i, h := range header {
 		if strings.EqualFold(strings.TrimSpace(h), target) {
 			return i
+		}
+	}
+	return -1
+}
+
+func findColumnIndexInSheet(sheet *workbook.Sheet, name string) int {
+	if sheet == nil {
+		return -1
+	}
+	target := strings.TrimSpace(name)
+	// Scan the first 15 rows to find a matching column header
+	for rowIdx := 0; rowIdx < len(sheet.Rows) && rowIdx < 15; rowIdx++ {
+		row := sheet.Rows[rowIdx]
+		// Try exact match first
+		for colIdx, cell := range row {
+			if cell == name {
+				return colIdx
+			}
+		}
+		// Try trimmed match
+		for colIdx, cell := range row {
+			if strings.TrimSpace(cell) == target {
+				return colIdx
+			}
+		}
+		// Try case-insensitive trimmed match
+		for colIdx, cell := range row {
+			if strings.EqualFold(strings.TrimSpace(cell), target) {
+				return colIdx
+			}
 		}
 	}
 	return -1
