@@ -2,6 +2,7 @@ package excelagent
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -144,4 +145,117 @@ func TestPublicAPIWorkbookFlow(t *testing.T) {
 	if value != "1080" {
 		t.Fatalf("unexpected saved value: %q", value)
 	}
+}
+
+func TestPublicAPIMemoryFlow(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "memory-demo.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetCellStr("Sheet1", "A1", "品名"); err != nil {
+		t.Fatalf("write A1 failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "B1", "单价"); err != nil {
+		t.Fatalf("write B1 failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "C1", "库存"); err != nil {
+		t.Fatalf("write C1 failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "A2", "标准键盘"); err != nil {
+		t.Fatalf("write A2 failed: %v", err)
+	}
+	if err := file.SetCellFloat("Sheet1", "B2", 1200, -1, 64); err != nil {
+		t.Fatalf("write B2 failed: %v", err)
+	}
+	if err := file.SetCellInt("Sheet1", "C2", 8); err != nil {
+		t.Fatalf("write C2 failed: %v", err)
+	}
+	for row := 3; row <= 200; row++ {
+		if err := file.SetCellStr("Sheet1", "A"+cellRow(row), "通用物品"); err != nil {
+			t.Fatalf("write generated name failed: %v", err)
+		}
+	}
+	if err := file.SaveAs(inputPath); err != nil {
+		t.Fatalf("save input failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close input failed: %v", err)
+	}
+
+	book, err := Open(ctx, inputPath)
+	if err != nil {
+		t.Fatalf("open failed: %v", err)
+	}
+
+	capsule, err := book.BuildContextCapsule(ctx, ContextRequest{
+		Purpose:  PurposePlanUpdate,
+		Query:    "标准键盘 单价",
+		MaxRows:  1,
+		MaxCells: 4,
+		MaxNodes: 8,
+	})
+	if err != nil {
+		t.Fatalf("build context capsule failed: %v", err)
+	}
+	if len(capsule.EvidenceRows) != 1 {
+		t.Fatalf("expected bounded evidence rows, got %d", len(capsule.EvidenceRows))
+	}
+
+	_, diff, record, err := book.ExecuteAndRemember(ctx, "把标准键盘的单价改为 1080", Command{
+		Op: "update_cell",
+		Target: Target{
+			Sheet: "Sheet1",
+			Cell:  "B2",
+		},
+		Args: UpdateCellArgs{Value: 1080},
+	})
+	if err != nil {
+		t.Fatalf("execute and remember failed: %v", err)
+	}
+	if diff.ChangedCells != 1 {
+		t.Fatalf("unexpected diff: %#v", diff)
+	}
+	if record.OperationID == "" || len(record.CommandJSON) == 0 {
+		t.Fatalf("operation not recorded: %#v", record)
+	}
+	if book.Memory().Session.LastOperationID != record.OperationID {
+		t.Fatalf("session focus not updated: %#v", book.Memory().Session)
+	}
+}
+
+func TestPublicAPIMemoryOptions(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "memory-options.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetCellStr("Sheet1", "A1", "Header"); err != nil {
+		t.Fatalf("write A1 failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "A2", "Value"); err != nil {
+		t.Fatalf("write A2 failed: %v", err)
+	}
+	if err := file.SaveAs(inputPath); err != nil {
+		t.Fatalf("save input failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close input failed: %v", err)
+	}
+
+	book, err := OpenWithMemoryOptions(ctx, inputPath, WithColumnTagger(ColumnTaggerFunc(func(ctx context.Context, req ColumnTagRequest) ([]string, error) {
+		return []string{"external_tag"}, nil
+	})))
+	if err != nil {
+		t.Fatalf("open failed: %v", err)
+	}
+	artifact := book.Memory().Artifacts["current"]
+	tags := artifact.Sheets[0].Columns[0].SemanticTags
+	if len(tags) != 1 || tags[0] != "external_tag" {
+		t.Fatalf("memory option was not applied: %#v", tags)
+	}
+}
+
+func cellRow(row int) string {
+	return fmt.Sprintf("%d", row)
 }

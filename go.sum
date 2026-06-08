@@ -1,3 +1,5 @@
+github.com/iEvan-lhr/go-llm-client v0.0.0-20260428091327-a122b6c066c3 h1:KwK/TMEM1witJQbT6+HRqyTjvYyqKaMKWi8Pk8C68no=
+github.com/iEvan-lhr/go-llm-client v0.0.0-20260428091327-a122b6c066c3/go.mod h1:f9qIlZluNVc7Y5U0aJqGM9YXy/laiO63uQrnfFbfieM=
 github.com/richardlehane/mscfb v1.0.6 h1:eN3bvvZCp00bs7Zf52bxNwAx5lJDBK1tCuH19qq5aC8=
 github.com/richardlehane/mscfb v1.0.6/go.mod h1:pe0+IUIc0AHh0+teNzBlJCtSyZdFOGgV4ZK9bsoV+Jo=
 github.com/richardlehane/msoleps v1.0.6 h1:9BvkpjvD+iUBalUY4esMwv6uBkfOip/Lzvd93jvR9gg=

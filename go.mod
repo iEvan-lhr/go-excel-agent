@@ -3,6 +3,7 @@ module github.com/iEvan-lhr/go-excel-agent
 go 1.26
 
 require (
+	github.com/iEvan-lhr/go-llm-client v0.0.0-20260428091327-a122b6c066c3 // indirect
 	github.com/richardlehane/mscfb v1.0.6 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
