@@ -13,9 +13,6 @@ func searchSheet(sheet *workbook.Sheet, query, searchColumn string) ([]workbook.
 		return nil, fmt.Errorf("目标 sheet 为空")
 	}
 	query = strings.TrimSpace(query)
-	if query == "" {
-		return nil, fmt.Errorf("搜索词不能为空")
-	}
 
 	searchColIdx := -1
 	if strings.TrimSpace(searchColumn) != "" {
@@ -30,6 +27,28 @@ func searchSheet(sheet *workbook.Sheet, query, searchColumn string) ([]workbook.
 
 	var results []workbook.FindResult
 	for rowIdx, row := range sheet.Rows {
+		if rowIdx == 0 {
+			continue // Skip header row
+		}
+		if query == "" || query == "*" {
+			colIdx := 0
+			if searchColIdx != -1 {
+				colIdx = searchColIdx
+			}
+			// If query is "*", it matches any non-empty cell in the search column
+			if query == "*" {
+				cellVal := ""
+				if colIdx < len(row) {
+					cellVal = strings.TrimSpace(row[colIdx])
+				}
+				if cellVal == "" {
+					continue
+				}
+			}
+			results = append(results, buildFindResult(sheet, rowIdx, colIdx))
+			continue
+		}
+
 		if searchColIdx != -1 {
 			if searchColIdx < len(row) && strings.Contains(row[searchColIdx], query) {
 				results = append(results, buildFindResult(sheet, rowIdx, searchColIdx))

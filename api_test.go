@@ -259,3 +259,93 @@ func TestPublicAPIMemoryOptions(t *testing.T) {
 func cellRow(row int) string {
 	return fmt.Sprintf("%d", row)
 }
+
+func TestGetSheetView(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "style-test.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetSheetName("Sheet1", "Styles"); err != nil {
+		t.Fatalf("rename sheet failed: %v", err)
+	}
+	if err := file.SetCellStr("Styles", "A1", "TestVal"); err != nil {
+		t.Fatalf("write A1 failed: %v", err)
+	}
+
+	styleID, err := file.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Family: "Arial", Size: 12, Color: "0000FF"},
+		Fill:      excelize.Fill{Type: "pattern", Color: []string{"FFFF00"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+	})
+	if err != nil {
+		t.Fatalf("create style failed: %v", err)
+	}
+	if err := file.SetCellStyle("Styles", "A1", "A1", styleID); err != nil {
+		t.Fatalf("set cell style failed: %v", err)
+	}
+
+	if err := file.SetColWidth("Styles", "A", "A", 20); err != nil {
+		t.Fatalf("set col width failed: %v", err)
+	}
+	if err := file.SetRowHeight("Styles", 1, 30); err != nil {
+		t.Fatalf("set row height failed: %v", err)
+	}
+
+	if err := file.MergeCell("Styles", "A1", "B1"); err != nil {
+		t.Fatalf("merge cell failed: %v", err)
+	}
+
+	if err := file.SaveAs(filePath); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+	_ = file.Close()
+
+	book, err := Open(ctx, filePath)
+	if err != nil {
+		t.Fatalf("open failed: %v", err)
+	}
+
+	view, err := book.GetSheetView(ctx, "Styles")
+	if err != nil {
+		t.Fatalf("GetSheetView failed: %v", err)
+	}
+
+	if len(view) == 0 || len(view[0]) == 0 {
+		t.Fatalf("expected non-empty view, got row count %d", len(view))
+	}
+
+	cell := view[0][0]
+	if cell.Coordinate != "A1" || cell.Value != "TestVal" {
+		t.Fatalf("unexpected cell value/coordinate: %+v", cell)
+	}
+
+	if cell.ColSpan != 2 || cell.RowSpan != 1 || !cell.IsMerged || cell.IsOverlaid {
+		t.Fatalf("unexpected A1 merge properties: colSpan=%d, rowSpan=%d, isMerged=%t, isOverlaid=%t", cell.ColSpan, cell.RowSpan, cell.IsMerged, cell.IsOverlaid)
+	}
+
+	cellB1 := view[0][1]
+	if !cellB1.IsMerged || !cellB1.IsOverlaid {
+		t.Fatalf("expected B1 to be overlaid: isMerged=%t, isOverlaid=%t", cellB1.IsMerged, cellB1.IsOverlaid)
+	}
+
+	if cell.Width != 20 || cell.Height != 30 {
+		t.Fatalf("unexpected width/height: width=%f, height=%f", cell.Width, cell.Height)
+	}
+
+	if cell.Style == nil {
+		t.Fatalf("expected style to be set, got nil")
+	}
+
+	if cell.Style.FontName != "Arial" || cell.Style.FontSize != 12 || !cell.Style.Bold {
+		t.Fatalf("unexpected font details: %+v", cell.Style)
+	}
+
+	if cell.Style.FillColor != "FFFF00" {
+		t.Fatalf("unexpected fill color: %s", cell.Style.FillColor)
+	}
+
+	if cell.Style.AlignHoriz != "center" || cell.Style.AlignVert != "center" {
+		t.Fatalf("unexpected alignment: horiz=%s, vert=%s", cell.Style.AlignHoriz, cell.Style.AlignVert)
+	}
+}

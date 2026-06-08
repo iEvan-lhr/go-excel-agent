@@ -40,6 +40,20 @@ func (a *Adapter) Open(path string) (*workbook.Workbook, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取 sheet '%s' 失败: %w", sheetName, err)
 		}
+		// Recalculate formula values if any
+		for rIdx, row := range rows {
+			for cIdx := range row {
+				cellName, err := excelize.CoordinatesToCellName(cIdx+1, rIdx+1)
+				if err != nil {
+					continue
+				}
+				if formula, err := file.GetCellFormula(sheetName, cellName); err == nil && formula != "" {
+					if calcVal, err := file.CalcCellValue(sheetName, cellName); err == nil {
+						rows[rIdx][cIdx] = calcVal
+					}
+				}
+			}
+		}
 		sheets = append(sheets, workbook.Sheet{Name: sheetName, Rows: rows})
 	}
 

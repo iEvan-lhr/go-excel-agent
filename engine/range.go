@@ -112,7 +112,8 @@ func (e *Engine) resolveTargets(sheet *workbook.Sheet, scope Scope, targetColumn
 		colsToUpdate[colIdx] = true
 	}
 
-	switch strings.ToLower(strings.TrimSpace(scope.Type)) {
+	scopeType := strings.ToLower(strings.TrimSpace(scope.Type))
+	switch scopeType {
 	case "range":
 		return addRangeTargets(sheet, scope.Range, hasTargetColumn, rowsToUpdate, colsToUpdate)
 	case "search":
@@ -125,6 +126,12 @@ func (e *Engine) resolveTargets(sheet *workbook.Sheet, scope Scope, targetColumn
 			if !hasTargetColumn {
 				colsToUpdate[result.ColIndex-1] = true
 			}
+		}
+		return nil
+	case "":
+		// If scope is empty/omitted, target all rows except header (row 0)
+		for rowIdx := 1; rowIdx < len(sheet.Rows); rowIdx++ {
+			rowsToUpdate[rowIdx] = true
 		}
 		return nil
 	default:

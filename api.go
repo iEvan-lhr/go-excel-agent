@@ -121,6 +121,29 @@ func OpenWithMemoryOptions(ctx context.Context, path string, options ...MemoryOp
 	return book, nil
 }
 
+// Reload reloads the workbook from its current source path, keeping the session memory.
+func (b *Book) Reload(ctx context.Context) error {
+	if err := b.ensureEngine(); err != nil {
+		return err
+	}
+	if b.engine.Book.SourcePath == "" {
+		return fmt.Errorf("book has no source path to reload from")
+	}
+
+	// Open the workbook file again using the engine
+	e, err := engine.Open(ctx, b.engine.Book.SourcePath)
+	if err != nil {
+		return err
+	}
+	b.engine = e
+
+	// Re-index the workbook context in the existing memory store
+	if _, err := b.memory.IndexWorkbookContext(ctx, b.currentWorkbookID(), e.Book); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (b *Book) Summary(ctx context.Context) (WorkbookSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return WorkbookSummary{}, err

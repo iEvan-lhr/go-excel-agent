@@ -27,7 +27,8 @@ func applyAction(currentValue string, action UpdateAction) (display string, type
 	case "multiply":
 		left, ok := parseNumber(currentValue)
 		if !ok {
-			return "", nil, fmt.Errorf("无法将当前值 '%s' 解析为数字", currentValue)
+			// Gracefully skip non-numeric or empty cells without failing the batch update
+			return currentValue, nil, nil
 		}
 		right, ok := parseNumber(action.Value)
 		if !ok {
