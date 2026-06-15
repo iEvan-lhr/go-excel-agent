@@ -42,9 +42,19 @@ type CellChange struct {
 }
 
 type Diff struct {
-	ChangedCells int          `json:"changedCells"`
-	ChangedRows  int          `json:"changedRows"`
-	Changes      []CellChange `json:"changes"`
+	ChangedCells     int               `json:"changedCells"`
+	ChangedRows      int               `json:"changedRows"`
+	Changes          []CellChange      `json:"changes"`
+	StructureChanges []StructureChange `json:"structureChanges,omitempty"`
+}
+
+type StructureChange struct {
+	Type       string `json:"type"`
+	Sheet      string `json:"sheet,omitempty"`
+	Range      string `json:"range,omitempty"`
+	BeforeName string `json:"beforeName,omitempty"`
+	AfterName  string `json:"afterName,omitempty"`
+	Count      int    `json:"count,omitempty"`
 }
 
 func (d *Diff) AddCell(sheet string, rowIdx, colIdx int, oldValue, newValue string) {
@@ -63,6 +73,10 @@ func (d *Diff) AddCell(sheet string, rowIdx, colIdx int, oldValue, newValue stri
 	})
 }
 
+func (d *Diff) AddStructure(change StructureChange) {
+	d.StructureChanges = append(d.StructureChanges, change)
+}
+
 func New() *Workbook {
 	return &Workbook{}
 }
@@ -77,6 +91,37 @@ func (b *Workbook) SheetByName(name string) *Sheet {
 			return &b.Sheets[i]
 		}
 	}
+	return nil
+}
+
+func (b *Workbook) SheetIndex(name string) int {
+	for i := range b.Sheets {
+		if b.Sheets[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (b *Workbook) AddSheet(name, afterSheet string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("sheet name cannot be empty")
+	}
+	if b.SheetByName(name) != nil {
+		return fmt.Errorf("sheet already exists: %s", name)
+	}
+	newSheet := Sheet{Name: name}
+	if afterSheet == "" {
+		b.Sheets = append(b.Sheets, newSheet)
+		return nil
+	}
+	idx := b.SheetIndex(afterSheet)
+	if idx == -1 {
+		return fmt.Errorf("after_sheet not found: %s", afterSheet)
+	}
+	b.Sheets = append(b.Sheets, Sheet{})
+	copy(b.Sheets[idx+2:], b.Sheets[idx+1:])
+	b.Sheets[idx+1] = newSheet
 	return nil
 }
 
@@ -148,6 +193,21 @@ func (b *Workbook) ClearRowTypedValues(sheet string, rowIdx int) {
 			delete(values, cell)
 		}
 	}
+}
+
+func (b *Workbook) ClearCellTypedValue(sheet string, rowIdx, colIdx int) {
+	if b.TypedValues == nil || rowIdx < 0 || colIdx < 0 {
+		return
+	}
+	values, ok := b.TypedValues[sheet]
+	if !ok {
+		return
+	}
+	cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
+	if err != nil {
+		return
+	}
+	delete(values, strings.ToUpper(cell))
 }
 
 func (s *Sheet) EnsureSize(rowIdx, colIdx int) {

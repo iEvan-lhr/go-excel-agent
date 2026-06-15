@@ -7,11 +7,15 @@ import (
 	"github.com/iEvan-lhr/go-excel-agent/engine"
 	"github.com/iEvan-lhr/go-excel-agent/excelizeadapter"
 	"github.com/iEvan-lhr/go-excel-agent/memory"
+	"github.com/iEvan-lhr/go-excel-agent/ops"
 	"github.com/iEvan-lhr/go-excel-agent/workbook"
 )
 
 type FindRequest = engine.FindRequest
 type UpdateCellRequest = engine.UpdateCellRequest
+type ClearCellRequest = engine.ClearCellRequest
+type CreateSheetRequest = engine.CreateSheetRequest
+type InsertCellsRequest = engine.InsertCellsRequest
 type BatchUpdateRequest = engine.BatchUpdateRequest
 type UpdateAction = engine.UpdateAction
 type AggregateRequest = engine.AggregateRequest
@@ -21,12 +25,16 @@ type Command = engine.Command
 type Target = engine.Target
 type FindArgs = engine.FindArgs
 type UpdateCellArgs = engine.UpdateCellArgs
+type ClearCellArgs = engine.ClearCellArgs
+type CreateSheetArgs = engine.CreateSheetArgs
+type InsertCellsArgs = engine.InsertCellsArgs
 type BatchUpdateArgs = engine.BatchUpdateArgs
 type AggregateArgs = engine.AggregateArgs
 
 type FindResult = workbook.FindResult
 type Diff = workbook.Diff
 type CellChange = workbook.CellChange
+type StructureChange = workbook.StructureChange
 type SaveResult = excelizeadapter.SaveResult
 type MemoryStore = memory.Store
 type ArtifactMemory = memory.ArtifactMemory
@@ -58,10 +66,25 @@ type IntentGeneralizer = memory.IntentGeneralizer
 type IntentGeneralizerFunc = memory.IntentGeneralizerFunc
 type ExecutionSummarizer = memory.ExecutionSummarizer
 type ExecutionSummarizerFunc = memory.ExecutionSummarizerFunc
+type VectorRecord = memory.VectorRecord
+type VectorRecordKind = memory.VectorRecordKind
+type VectorSearchRequest = memory.VectorSearchRequest
+type VectorSearchResult = memory.VectorSearchResult
+type VectorStore = memory.VectorStore
+type InMemoryVectorStore = memory.InMemoryVectorStore
+type OperationLevel = ops.OperationLevel
+type RiskLevel = ops.RiskLevel
+type ConfirmationPolicy = ops.ConfirmationPolicy
+type OperationSpec = ops.OperationSpec
+type OperationExample = ops.OperationExample
+type OperationRegistry = ops.Registry
 
 var WithColumnTagger = memory.WithColumnTagger
 var WithIntentGeneralizer = memory.WithIntentGeneralizer
 var WithExecutionSummarizer = memory.WithExecutionSummarizer
+var NewInMemoryVectorStore = memory.NewInMemoryVectorStore
+var BuiltinOperationRegistry = ops.BuiltinRegistry
+var BuiltinOperationSpecs = ops.BuiltinSpecs
 
 const (
 	PurposeUnderstandFile ContextPurpose = memory.PurposeUnderstandFile
@@ -71,6 +94,32 @@ const (
 	PurposeRepair         ContextPurpose = memory.PurposeRepair
 	PurposeExplainResult  ContextPurpose = memory.PurposeExplainResult
 	PurposeFollowup       ContextPurpose = memory.PurposeFollowup
+)
+
+const (
+	LevelReadOnly      OperationLevel = ops.LevelReadOnly
+	LevelLocate        OperationLevel = ops.LevelLocate
+	LevelCellEdit      OperationLevel = ops.LevelCellEdit
+	LevelRangeEdit     OperationLevel = ops.LevelRangeEdit
+	LevelStructureEdit OperationLevel = ops.LevelStructureEdit
+	LevelDestructive   OperationLevel = ops.LevelDestructive
+	LevelExternalWrite OperationLevel = ops.LevelExternalWrite
+
+	RiskLow    RiskLevel = ops.RiskLow
+	RiskMedium RiskLevel = ops.RiskMedium
+	RiskHigh   RiskLevel = ops.RiskHigh
+
+	ConfirmNever     ConfirmationPolicy = ops.ConfirmNever
+	ConfirmSometimes ConfirmationPolicy = ops.ConfirmSometimes
+	ConfirmAlways    ConfirmationPolicy = ops.ConfirmAlways
+)
+
+const (
+	VectorKindOperationSpec     VectorRecordKind = memory.VectorKindOperationSpec
+	VectorKindOperationExample  VectorRecordKind = memory.VectorKindOperationExample
+	VectorKindSuccessExperience VectorRecordKind = memory.VectorKindSuccessExperience
+	VectorKindFailureCase       VectorRecordKind = memory.VectorKindFailureCase
+	VectorKindUserPreference    VectorRecordKind = memory.VectorKindUserPreference
 )
 
 type RangeRequest struct {
@@ -209,6 +258,27 @@ func (b *Book) UpdateCell(ctx context.Context, req UpdateCellRequest) (*Diff, er
 		return nil, err
 	}
 	return b.engine.UpdateCell(ctx, req)
+}
+
+func (b *Book) ClearCell(ctx context.Context, req ClearCellRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.ClearCell(ctx, req)
+}
+
+func (b *Book) CreateSheet(ctx context.Context, req CreateSheetRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.CreateSheet(ctx, req)
+}
+
+func (b *Book) InsertCells(ctx context.Context, req InsertCellsRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.InsertCells(ctx, req)
 }
 
 func (b *Book) BatchUpdate(ctx context.Context, req BatchUpdateRequest) (*Diff, error) {

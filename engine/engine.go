@@ -119,6 +119,33 @@ func (e *Engine) Execute(ctx context.Context, cmd Command) (any, *workbook.Diff,
 			Value: args.Value,
 		})
 		return nil, diff, err
+	case "clear_cell":
+		diff, err := e.ClearCell(ctx, ClearCellRequest{
+			Sheet: cmd.Target.Sheet,
+			Cell:  cmd.Target.Cell,
+		})
+		return nil, diff, err
+	case "create_sheet":
+		args, err := decodeCommandArgs[CreateSheetArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		diff, err := e.CreateSheet(ctx, CreateSheetRequest{
+			Sheet:      cmd.Target.Sheet,
+			AfterSheet: args.AfterSheet,
+		})
+		return nil, diff, err
+	case "insert_cells":
+		args, err := decodeCommandArgs[InsertCellsArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		diff, err := e.InsertCells(ctx, InsertCellsRequest{
+			Sheet: cmd.Target.Sheet,
+			Cell:  cmd.Target.Cell,
+			Shift: args.Shift,
+		})
+		return nil, diff, err
 	case "batch_update":
 		args, err := decodeCommandArgs[BatchUpdateArgs](cmd.Args)
 		if err != nil {
@@ -229,6 +256,94 @@ func (e *Engine) UpdateCell(ctx context.Context, req UpdateCellRequest) (*workbo
 	if oldValue != newValue {
 		diff.AddCell(req.Sheet, rowIdx, colIdx, oldValue, newValue)
 	}
+	return diff, nil
+}
+
+func (e *Engine) ClearCell(ctx context.Context, req ClearCellRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sheet := e.requireSheet(req.Sheet)
+	if sheet == nil {
+		return nil, fmt.Errorf("找不到 sheet: %s", req.Sheet)
+	}
+	col, row, err := excelize.CellNameToCoordinates(req.Cell)
+	if err != nil {
+		return nil, fmt.Errorf("无法识别的单元格地址 '%s': %w", req.Cell, err)
+	}
+	rowIdx, colIdx := row-1, col-1
+	oldValue := sheet.Cell(rowIdx, colIdx)
+	sheet.SetCell(rowIdx, colIdx, "")
+	e.Book.ClearCellTypedValue(req.Sheet, rowIdx, colIdx)
+
+	diff := &workbook.Diff{}
+	if oldValue != "" {
+		diff.AddCell(req.Sheet, rowIdx, colIdx, oldValue, "")
+	}
+	return diff, nil
+}
+
+func (e *Engine) CreateSheet(ctx context.Context, req CreateSheetRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if e.Book == nil {
+		e.Book = workbook.New()
+	}
+	if err := e.Book.AddSheet(req.Sheet, req.AfterSheet); err != nil {
+		return nil, err
+	}
+	diff := &workbook.Diff{}
+	diff.AddStructure(workbook.StructureChange{
+		Type:  "sheet_created",
+		Sheet: req.Sheet,
+	})
+	return diff, nil
+}
+
+func (e *Engine) InsertCells(ctx context.Context, req InsertCellsRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sheet := e.requireSheet(req.Sheet)
+	if sheet == nil {
+		return nil, fmt.Errorf("找不到 sheet: %s", req.Sheet)
+	}
+	col, row, err := excelize.CellNameToCoordinates(req.Cell)
+	if err != nil {
+		return nil, fmt.Errorf("无法识别的单元格地址 '%s': %w", req.Cell, err)
+	}
+	rowIdx, colIdx := row-1, col-1
+	shift := strings.ToLower(strings.TrimSpace(req.Shift))
+	if shift == "" {
+		shift = "right"
+	}
+	switch shift {
+	case "right":
+		sheet.EnsureSize(rowIdx, colIdx)
+		sheet.Rows[rowIdx] = append(sheet.Rows[rowIdx], "")
+		copy(sheet.Rows[rowIdx][colIdx+1:], sheet.Rows[rowIdx][colIdx:])
+		sheet.Rows[rowIdx][colIdx] = ""
+	case "down":
+		sheet.EnsureSize(rowIdx, colIdx)
+		sheet.Rows = append(sheet.Rows, []string{})
+		for r := len(sheet.Rows) - 1; r > rowIdx; r-- {
+			sheet.EnsureSize(r, colIdx)
+			sheet.EnsureSize(r-1, colIdx)
+			sheet.Rows[r][colIdx] = sheet.Rows[r-1][colIdx]
+		}
+		sheet.Rows[rowIdx][colIdx] = ""
+	default:
+		return nil, fmt.Errorf("不支持的 insert_cells shift: %s", req.Shift)
+	}
+	e.Book.ClearSheetTypedValues(req.Sheet)
+	diff := &workbook.Diff{}
+	diff.AddStructure(workbook.StructureChange{
+		Type:  "cells_inserted",
+		Sheet: req.Sheet,
+		Range: req.Cell,
+		Count: 1,
+	})
 	return diff, nil
 }
 

@@ -177,6 +177,21 @@ func GeneralizeCommand(cmd engine.Command) GeneralizedIntent {
 		intent.Locator = "cell_address"
 		intent.Action = "overwrite"
 		intent.Target = "cell"
+	case "clear_cell":
+		intent.IntentType = "single_cell_update"
+		intent.Locator = "cell_address"
+		intent.Action = "clear"
+		intent.Target = "cell"
+	case "create_sheet":
+		intent.IntentType = "structure_edit"
+		intent.Locator = "sheet_name"
+		intent.Action = "create"
+		intent.Target = "sheet"
+	case "insert_cells":
+		intent.IntentType = "structure_edit"
+		intent.Locator = "cell_address"
+		intent.Action = "insert"
+		intent.Target = "cell"
 	case "batch_update":
 		intent.IntentType = "locate_and_update"
 		intent.Locator = "scope"
@@ -273,6 +288,17 @@ func (s *Store) buildExecutionSummary(record OperationRecord) ExecutionSummary {
 		summary.Kind = "failed_operation"
 		summary.Text = "operation failed: " + record.Error
 		summary.Facts = append(summary.Facts, MemoryFact{Key: "error", Value: record.Error})
+		return summary
+	}
+	if record.Diff != nil && len(record.Diff.StructureChanges) > 0 {
+		summary.Kind = "structure_change"
+		summary.Text = fmt.Sprintf("%s changed workbook structure", record.Command.Op)
+		for _, change := range record.Diff.StructureChanges {
+			summary.Facts = append(summary.Facts,
+				MemoryFact{Key: "structure_change", Value: change.Type},
+				MemoryFact{Key: "sheet", Value: change.Sheet},
+			)
+		}
 		return summary
 	}
 	if record.Diff == nil || record.Diff.ChangedCells == 0 {

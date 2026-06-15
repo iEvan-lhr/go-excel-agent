@@ -37,6 +37,22 @@ type UpdateCellRequest struct {
 	Value any    `json:"value,omitempty"`
 }
 
+type ClearCellRequest struct {
+	Sheet string `json:"sheet,omitempty"`
+	Cell  string `json:"cell,omitempty"`
+}
+
+type CreateSheetRequest struct {
+	Sheet      string `json:"sheet,omitempty"`
+	AfterSheet string `json:"after_sheet,omitempty"`
+}
+
+type InsertCellsRequest struct {
+	Sheet string `json:"sheet,omitempty"`
+	Cell  string `json:"cell,omitempty"`
+	Shift string `json:"shift,omitempty"`
+}
+
 type BatchUpdateRequest struct {
 	Sheet        string       `json:"sheet,omitempty"`
 	Scope        Scope        `json:"scope"`
@@ -67,6 +83,16 @@ type FindArgs struct {
 
 type UpdateCellArgs struct {
 	Value any `json:"value,omitempty"`
+}
+
+type ClearCellArgs struct{}
+
+type CreateSheetArgs struct {
+	AfterSheet string `json:"after_sheet,omitempty"`
+}
+
+type InsertCellsArgs struct {
+	Shift string `json:"shift,omitempty"`
 }
 
 type BatchUpdateArgs struct {
