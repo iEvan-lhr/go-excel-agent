@@ -180,6 +180,56 @@ func (e *Engine) Execute(ctx context.Context, cmd Command) (any, *workbook.Diff,
 			Scope:  cmd.Target.Scope,
 		})
 		return result, &workbook.Diff{}, err
+	case "update_style":
+		args, err := decodeCommandArgs[UpdateStyleArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		diff, err := e.UpdateStyle(ctx, UpdateStyleRequest{
+			Sheet: cmd.Target.Sheet,
+			Cell:  cmd.Target.Cell,
+			Range: cmd.Target.Range,
+			Scope: cmd.Target.Scope,
+			Style: args.Style,
+		})
+		return nil, diff, err
+	case "write_formula":
+		args, err := decodeCommandArgs[WriteFormulaArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		diff, err := e.WriteFormula(ctx, WriteFormulaRequest{
+			Sheet:   cmd.Target.Sheet,
+			Cell:    cmd.Target.Cell,
+			Formula: args.Formula,
+		})
+		return nil, diff, err
+	case "insert_row":
+		args, err := decodeCommandArgs[InsertRowArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		scope := cmd.Target.Scope
+		diff, err := e.InsertRow(ctx, InsertRowRequest{
+			Sheet:  cmd.Target.Sheet,
+			Cell:   cmd.Target.Cell,
+			Scope:  scope,
+			Values: args.Values,
+		})
+		return nil, diff, err
+	case "export_markdown":
+		args, err := decodeCommandArgs[ExportMarkdownArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		outDir := args.OutputDir
+		if outDir == "" {
+			outDir = cmd.Target.SearchQuery
+		}
+		err = e.ExportMarkdown(ctx, outDir)
+		return nil, &workbook.Diff{}, err
+	case "finish":
+		return nil, &workbook.Diff{}, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown command op: %s", cmd.Op)
 	}
@@ -275,6 +325,7 @@ func (e *Engine) ClearCell(ctx context.Context, req ClearCellRequest) (*workbook
 	oldValue := sheet.Cell(rowIdx, colIdx)
 	sheet.SetCell(rowIdx, colIdx, "")
 	e.Book.ClearCellTypedValue(req.Sheet, rowIdx, colIdx)
+	e.Book.ClearCellFormula(req.Sheet, rowIdx, colIdx)
 
 	diff := &workbook.Diff{}
 	if oldValue != "" {
@@ -450,4 +501,190 @@ func (e *Engine) requireSheet(name string) *workbook.Sheet {
 		e.Book = workbook.New()
 	}
 	return e.Book.SheetByName(name)
+}
+
+func (e *Engine) UpdateStyle(ctx context.Context, req UpdateStyleRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sheet := e.requireSheet(req.Sheet)
+	if sheet == nil {
+		return nil, fmt.Errorf("找不到 sheet: %s", req.Sheet)
+	}
+
+	rowsToUpdate := make(map[int]bool)
+	colsToUpdate := make(map[int]bool)
+	if req.Cell != "" {
+		col, row, err := excelize.CellNameToCoordinates(req.Cell)
+		if err != nil {
+			return nil, err
+		}
+		rowsToUpdate[row-1] = true
+		colsToUpdate[col-1] = true
+	} else if req.Range != "" {
+		err := addRangeTargets(sheet, req.Range, false, rowsToUpdate, colsToUpdate)
+		if err != nil {
+			return nil, err
+		}
+	} else if req.Scope != nil {
+		err := e.resolveTargets(sheet, *req.Scope, "", rowsToUpdate, colsToUpdate)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("update_style requires cell, range, or scope target")
+	}
+
+	diff := &workbook.Diff{}
+	for rowIdx := range rowsToUpdate {
+		for colIdx := range colsToUpdate {
+			sheet.EnsureSize(rowIdx, colIdx)
+			cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
+			if err != nil {
+				return nil, err
+			}
+			e.Book.RememberCellStyle(req.Sheet, cell, req.Style)
+			diff.AddStructure(workbook.StructureChange{
+				Type:  "style_updated",
+				Sheet: req.Sheet,
+				Range: cell,
+			})
+		}
+	}
+	return diff, nil
+}
+
+func (e *Engine) WriteFormula(ctx context.Context, req WriteFormulaRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sheet := e.requireSheet(req.Sheet)
+	if sheet == nil {
+		return nil, fmt.Errorf("找不到 sheet: %s", req.Sheet)
+	}
+	if req.Cell == "" {
+		return nil, fmt.Errorf("write_formula requires cell target")
+	}
+	col, row, err := excelize.CellNameToCoordinates(req.Cell)
+	if err != nil {
+		return nil, fmt.Errorf("无法识别的单元格地址 '%s': %w", req.Cell, err)
+	}
+	rowIdx, colIdx := row-1, col-1
+	sheet.EnsureSize(rowIdx, colIdx)
+
+	oldValue := sheet.Cell(rowIdx, colIdx)
+	formula := req.Formula
+	formula = strings.TrimSpace(formula)
+	if !strings.HasPrefix(formula, "=") && formula != "" {
+		formula = "=" + formula
+	}
+
+	sheet.SetCell(rowIdx, colIdx, formula)
+	e.Book.RememberFormula(req.Sheet, req.Cell, formula)
+	e.Book.ClearCellTypedValue(req.Sheet, rowIdx, colIdx)
+
+	diff := &workbook.Diff{}
+	if oldValue != formula {
+		diff.AddCell(req.Sheet, rowIdx, colIdx, oldValue, formula)
+	}
+	diff.AddStructure(workbook.StructureChange{
+		Type:  "formula_updated",
+		Sheet: req.Sheet,
+		Range: req.Cell,
+	})
+	return diff, nil
+}
+
+func (e *Engine) ExecuteSequence(ctx context.Context, cmds []Command) ([]any, *workbook.Diff, error) {
+	var results []any
+	mergedDiff := &workbook.Diff{}
+	for _, cmd := range cmds {
+		res, diff, err := e.Execute(ctx, cmd)
+		if err != nil {
+			return nil, nil, err
+		}
+		results = append(results, res)
+		if diff != nil {
+			mergedDiff.ChangedCells += diff.ChangedCells
+			mergedDiff.ChangedRows += diff.ChangedRows
+			mergedDiff.Changes = append(mergedDiff.Changes, diff.Changes...)
+			mergedDiff.StructureChanges = append(mergedDiff.StructureChanges, diff.StructureChanges...)
+		}
+	}
+	return results, mergedDiff, nil
+}
+
+func (e *Engine) InsertRow(ctx context.Context, req InsertRowRequest) (*workbook.Diff, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sheet := e.requireSheet(req.Sheet)
+	if sheet == nil {
+		return nil, fmt.Errorf("找不到 sheet: %s", req.Sheet)
+	}
+
+	rowIdx := -1
+	if req.Cell != "" {
+		_, row, err := excelize.CellNameToCoordinates(req.Cell)
+		if err != nil {
+			return nil, err
+		}
+		rowIdx = row - 1
+	} else if req.Scope != nil {
+		rowsToUpdate := make(map[int]bool)
+		colsToUpdate := make(map[int]bool)
+		err := e.resolveTargets(sheet, *req.Scope, "", rowsToUpdate, colsToUpdate)
+		if err != nil {
+			return nil, err
+		}
+		if len(rowsToUpdate) == 0 {
+			return nil, fmt.Errorf("insert_row scope resolution matched no rows")
+		}
+		for r := range rowsToUpdate {
+			if rowIdx == -1 || r < rowIdx {
+				rowIdx = r
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("insert_row requires cell or scope target to locate insertion row")
+	}
+
+	sheet.EnsureSize(rowIdx, 0)
+	maxCols := workbook.MaxColumnCount(sheet.Rows)
+	if maxCols == 0 {
+		maxCols = len(req.Values)
+	}
+	if maxCols == 0 {
+		maxCols = 1
+	}
+
+	sheet.Rows = append(sheet.Rows, []string{})
+	copy(sheet.Rows[rowIdx+1:], sheet.Rows[rowIdx:])
+	sheet.Rows[rowIdx] = make([]string, maxCols)
+
+	e.Book.ShiftRowsDown(req.Sheet, rowIdx)
+
+	if e.Book.InsertedRows == nil {
+		e.Book.InsertedRows = make(map[string][]int)
+	}
+	e.Book.InsertedRows[req.Sheet] = append(e.Book.InsertedRows[req.Sheet], rowIdx)
+
+	diff := &workbook.Diff{}
+	if len(req.Values) > 0 {
+		for colIdx, val := range req.Values {
+			sheet.EnsureSize(rowIdx, colIdx)
+			cellVal := workbook.DisplayValue(val)
+			sheet.SetCell(rowIdx, colIdx, cellVal)
+			e.Book.RememberCellValue(req.Sheet, rowIdx, colIdx, val)
+			diff.AddCell(req.Sheet, rowIdx, colIdx, "", cellVal)
+		}
+	}
+
+	diff.AddStructure(workbook.StructureChange{
+		Type:  "row_inserted",
+		Sheet: req.Sheet,
+		Range: fmt.Sprintf("%d", rowIdx+1),
+	})
+
+	return diff, nil
 }

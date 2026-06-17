@@ -28,6 +28,7 @@ const (
 	StateExecuted          InteractionState = "executed"
 	StateRemembered        InteractionState = "remembered"
 	StateFailed            InteractionState = "failed"
+	StateFinished          InteractionState = "finished"
 )
 
 type OperationCandidate struct {
@@ -204,6 +205,17 @@ func (r *interactionRun) run(ctx context.Context) (InteractionResult, error) {
 
 	r.emitWithCommand(ctx, StateExecutable, "command is executable", cmd, nil)
 	r.emitWithCommand(ctx, StateExecuting, "executing command", cmd, nil)
+
+	if cmd.Op == "finish" {
+		_, diff, record, err := r.book.ExecuteAndRemember(ctx, r.req.UserRequest, *cmd)
+		if err != nil {
+			return r.fail(ctx, cmd, err)
+		}
+		r.emitWithDiff(ctx, StateExecuted, "done/finish signal executed", cmd, diff)
+		r.emit(ctx, StateFinished, "任务已全部完成。", nil)
+		return r.result(StateFinished, "任务已全部完成。", cmd, diff, record, candidates), nil
+	}
+
 	_, diff, record, err := r.book.ExecuteAndRemember(ctx, r.req.UserRequest, *cmd)
 	if err != nil {
 		if r.vector != nil {

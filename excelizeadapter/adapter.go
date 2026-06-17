@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/iEvan-lhr/go-excel-agent/workbook"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -90,6 +92,8 @@ func (a *Adapter) saveNewWorkbook(book *workbook.Workbook, path string) error {
 	file := excelize.NewFile()
 	defer file.Close()
 
+	styleCache := make(map[string]int)
+
 	for i, sheetData := range book.Sheets {
 		if sheetData.Name == "" {
 			return fmt.Errorf("工作表名称不能为空")
@@ -116,8 +120,22 @@ func (a *Adapter) saveNewWorkbook(book *workbook.Workbook, path string) error {
 				if remembered, ok := book.RememberedCellValue(sheetData.Name, rowIdx, colIdx); ok {
 					valueToWrite = remembered
 				}
-				if err := SetCellAuto(file, sheetData.Name, cell, valueToWrite); err != nil {
-					return fmt.Errorf("向sheet '%s' 写入单元格 %s 失败: %w", sheetData.Name, cell, err)
+
+				if formula, ok := book.RememberedFormula(sheetData.Name, rowIdx, colIdx); ok && formula != "" {
+					excelizeFormula := strings.TrimPrefix(formula, "=")
+					if err := file.SetCellFormula(sheetData.Name, cell, excelizeFormula); err != nil {
+						return fmt.Errorf("向sheet '%s' 写入公式 %s 失败: %w", sheetData.Name, cell, err)
+					}
+				} else {
+					if err := SetCellAuto(file, sheetData.Name, cell, valueToWrite); err != nil {
+						return fmt.Errorf("向sheet '%s' 写入单元格 %s 失败: %w", sheetData.Name, cell, err)
+					}
+				}
+
+				if style, ok := book.RememberedCellStyle(sheetData.Name, rowIdx, colIdx); ok {
+					if err := applyExcelizeStyle(file, sheetData.Name, cell, style, styleCache); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -149,8 +167,23 @@ func (a *Adapter) savePreservingWorkbook(book *workbook.Workbook, path string) (
 
 	originalByName := sheetsByName(book.OriginalSheets)
 	changedCells := 0
+	styleCache := make(map[string]int)
 	for _, sheetData := range book.Sheets {
-		written, err := writeSheetValuesPreservingStyles(file, book, sheetData, originalByName[sheetData.Name])
+		if book.InsertedRows != nil {
+			if rows, ok := book.InsertedRows[sheetData.Name]; ok && len(rows) > 0 {
+				sortedRows := append([]int(nil), rows...)
+				sort.Slice(sortedRows, func(i, j int) bool {
+					return sortedRows[i] > sortedRows[j]
+				})
+				for _, rowIdx := range sortedRows {
+					if err := file.InsertRows(sheetData.Name, rowIdx+1, 1); err != nil {
+						return changedCells, fmt.Errorf("在sheet '%s' 插入物理行 %d 失败: %w", sheetData.Name, rowIdx+1, err)
+					}
+				}
+			}
+		}
+
+		written, err := writeSheetValuesPreservingStyles(file, book, sheetData, originalByName[sheetData.Name], styleCache)
 		if err != nil {
 			return changedCells, err
 		}
@@ -214,7 +247,7 @@ func syncWorkbookSheets(file *excelize.File, sheets []workbook.Sheet) error {
 	return nil
 }
 
-func writeSheetValuesPreservingStyles(file *excelize.File, book *workbook.Workbook, current workbook.Sheet, original *workbook.Sheet) (int, error) {
+func writeSheetValuesPreservingStyles(file *excelize.File, book *workbook.Workbook, current workbook.Sheet, original *workbook.Sheet, styleCache map[string]int) (int, error) {
 	maxRows := len(current.Rows)
 	if original != nil && len(original.Rows) > maxRows {
 		maxRows = len(original.Rows)
@@ -239,7 +272,11 @@ func writeSheetValuesPreservingStyles(file *excelize.File, book *workbook.Workbo
 			if hasRemembered {
 				valueToWrite = remembered
 			}
-			if original != nil && currentValue == originalValue && !hasRemembered {
+
+			_, hasFormula := book.RememberedFormula(current.Name, rowIdx, colIdx)
+			_, hasStyle := book.RememberedCellStyle(current.Name, rowIdx, colIdx)
+
+			if original != nil && currentValue == originalValue && !hasRemembered && !hasFormula && !hasStyle {
 				continue
 			}
 
@@ -247,8 +284,24 @@ func writeSheetValuesPreservingStyles(file *excelize.File, book *workbook.Workbo
 			if err != nil {
 				return written, err
 			}
-			if err := SetCellAuto(file, current.Name, cell, valueToWrite); err != nil {
-				return written, fmt.Errorf("设置sheet '%s' 单元格 %s 失败: %w", current.Name, cell, err)
+
+			if hasFormula {
+				formula, _ := book.RememberedFormula(current.Name, rowIdx, colIdx)
+				excelizeFormula := strings.TrimPrefix(formula, "=")
+				if err := file.SetCellFormula(current.Name, cell, excelizeFormula); err != nil {
+					return written, fmt.Errorf("设置sheet '%s' 单元格 %s 公式失败: %w", current.Name, cell, err)
+				}
+			} else {
+				if err := SetCellAuto(file, current.Name, cell, valueToWrite); err != nil {
+					return written, fmt.Errorf("设置sheet '%s' 单元格 %s 失败: %w", current.Name, cell, err)
+				}
+			}
+
+			if hasStyle {
+				style, _ := book.RememberedCellStyle(current.Name, rowIdx, colIdx)
+				if err := applyExcelizeStyle(file, current.Name, cell, style, styleCache); err != nil {
+					return written, err
+				}
 			}
 			written++
 		}
@@ -269,4 +322,45 @@ func rowLen(rows [][]string, rowIdx int) int {
 		return 0
 	}
 	return len(rows[rowIdx])
+}
+
+func styleKey(s workbook.CellStyle) string {
+	return fmt.Sprintf("%s|%f|%t|%t|%s|%s|%s|%s", s.FontName, s.FontSize, s.Bold, s.Italic, s.FontColor, s.FillColor, s.AlignHoriz, s.AlignVert)
+}
+
+func applyExcelizeStyle(file *excelize.File, sheet, cell string, style workbook.CellStyle, cache map[string]int) error {
+	key := styleKey(style)
+	styleID, ok := cache[key]
+	if !ok {
+		exStyle := &excelize.Style{}
+		if style.FontName != "" || style.FontSize > 0 || style.Bold || style.Italic || style.FontColor != "" {
+			exStyle.Font = &excelize.Font{
+				Family: style.FontName,
+				Size:   style.FontSize,
+				Bold:   style.Bold,
+				Italic: style.Italic,
+				Color:  style.FontColor,
+			}
+		}
+		if style.FillColor != "" {
+			exStyle.Fill = excelize.Fill{
+				Type:    "pattern",
+				Color:   []string{style.FillColor},
+				Pattern: 1,
+			}
+		}
+		if style.AlignHoriz != "" || style.AlignVert != "" {
+			exStyle.Alignment = &excelize.Alignment{
+				Horizontal: style.AlignHoriz,
+				Vertical:   style.AlignVert,
+			}
+		}
+		var err error
+		styleID, err = file.NewStyle(exStyle)
+		if err != nil {
+			return fmt.Errorf("创建excelize样式失败: %w", err)
+		}
+		cache[key] = styleID
+	}
+	return file.SetCellStyle(sheet, cell, cell, styleID)
 }

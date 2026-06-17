@@ -3,7 +3,9 @@ package excelagent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -347,5 +349,94 @@ func TestGetSheetView(t *testing.T) {
 
 	if cell.Style.AlignHoriz != "center" || cell.Style.AlignVert != "center" {
 		t.Fatalf("unexpected alignment: horiz=%s, vert=%s", cell.Style.AlignHoriz, cell.Style.AlignVert)
+	}
+}
+
+func TestBookExportMarkdownFlow(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	excelPath := filepath.Join(tempDir, "source.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetCellStr("Sheet1", "A1", "Name"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "B1", "Age"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "A2", "Alice"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellInt("Sheet1", "B2", 30); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	// Create another sheet
+	_, err := file.NewSheet("Sheet2")
+	if err != nil {
+		t.Fatalf("new sheet failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A1", "Item"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A2", "Book"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	if err := file.SaveAs(excelPath); err != nil {
+		t.Fatalf("save excel failed: %v", err)
+	}
+	_ = file.Close()
+
+	// 1. Test using direct API Book.ExportMarkdown
+	book, err := Open(ctx, excelPath)
+	if err != nil {
+		t.Fatalf("open book failed: %v", err)
+	}
+
+	outputDir1 := filepath.Join(tempDir, "md_out_1")
+	err = book.ExportMarkdown(ctx, outputDir1)
+	if err != nil {
+		t.Fatalf("ExportMarkdown failed: %v", err)
+	}
+
+	// Check if markdown files are written correctly
+	md1Path := filepath.Join(outputDir1, "Sheet1.md")
+	content1, err := os.ReadFile(md1Path)
+	if err != nil {
+		t.Fatalf("read Sheet1.md failed: %v", err)
+	}
+	if !strings.Contains(string(content1), "| Name | Age |") || !strings.Contains(string(content1), "| Alice | 30 |") {
+		t.Errorf("unexpected content in Sheet1.md:\n%s", string(content1))
+	}
+
+	md2Path := filepath.Join(outputDir1, "Sheet2.md")
+	content2, err := os.ReadFile(md2Path)
+	if err != nil {
+		t.Fatalf("read Sheet2.md failed: %v", err)
+	}
+	if !strings.Contains(string(content2), "| Item |") || !strings.Contains(string(content2), "| Book |") {
+		t.Errorf("unexpected content in Sheet2.md:\n%s", string(content2))
+	}
+
+	// 2. Test using DSL Book.Execute
+	outputDir2 := filepath.Join(tempDir, "md_out_2")
+	cmd := Command{
+		Op: "export_markdown",
+		Args: ExportMarkdownArgs{
+			OutputDir: outputDir2,
+		},
+	}
+	_, _, err = book.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute export_markdown failed: %v", err)
+	}
+
+	// Verify the files exist and contain content in outputDir2
+	if _, err := os.Stat(filepath.Join(outputDir2, "Sheet1.md")); err != nil {
+		t.Fatalf("expected Sheet1.md to exist in outputDir2: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir2, "Sheet2.md")); err != nil {
+		t.Fatalf("expected Sheet2.md to exist in outputDir2: %v", err)
 	}
 }

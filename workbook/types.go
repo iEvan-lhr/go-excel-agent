@@ -16,6 +16,9 @@ type Workbook struct {
 	SourcePath     string
 	OriginalSheets []Sheet
 	TypedValues    map[string]map[string]any
+	StyleValues    map[string]map[string]CellStyle // sheet -> cell -> CellStyle
+	Formulas       map[string]map[string]string    // sheet -> cell -> formula
+	InsertedRows   map[string][]int                // sheet -> []row_index
 }
 
 type Sheet struct {
@@ -129,6 +132,9 @@ func (b *Workbook) SetSource(path string) {
 	b.SourcePath = NormalizePath(path)
 	b.OriginalSheets = CloneSheets(b.Sheets)
 	b.TypedValues = nil
+	b.StyleValues = nil
+	b.Formulas = nil
+	b.InsertedRows = nil
 }
 
 func (b *Workbook) MarkSaved(path string) {
@@ -172,42 +178,135 @@ func (b *Workbook) RememberedCellValue(sheet string, rowIdx, colIdx int) (any, b
 	return value, ok
 }
 
+func (b *Workbook) RememberCellStyle(sheet, cell string, style CellStyle) {
+	if b.StyleValues == nil {
+		b.StyleValues = make(map[string]map[string]CellStyle)
+	}
+	if b.StyleValues[sheet] == nil {
+		b.StyleValues[sheet] = make(map[string]CellStyle)
+	}
+	b.StyleValues[sheet][strings.ToUpper(cell)] = style
+}
+
+func (b *Workbook) RememberedCellStyle(sheet string, rowIdx, colIdx int) (CellStyle, bool) {
+	if b.StyleValues == nil || rowIdx < 0 || colIdx < 0 {
+		return CellStyle{}, false
+	}
+	cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
+	if err != nil {
+		return CellStyle{}, false
+	}
+	values, ok := b.StyleValues[sheet]
+	if !ok {
+		return CellStyle{}, false
+	}
+	style, ok := values[strings.ToUpper(cell)]
+	return style, ok
+}
+
+func (b *Workbook) RememberFormula(sheet, cell string, formula string) {
+	if b.Formulas == nil {
+		b.Formulas = make(map[string]map[string]string)
+	}
+	if b.Formulas[sheet] == nil {
+		b.Formulas[sheet] = make(map[string]string)
+	}
+	formula = strings.TrimSpace(formula)
+	if !strings.HasPrefix(formula, "=") && formula != "" {
+		formula = "=" + formula
+	}
+	b.Formulas[sheet][strings.ToUpper(cell)] = formula
+}
+
+func (b *Workbook) RememberedFormula(sheet string, rowIdx, colIdx int) (string, bool) {
+	if b.Formulas == nil || rowIdx < 0 || colIdx < 0 {
+		return "", false
+	}
+	cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
+	if err != nil {
+		return "", false
+	}
+	values, ok := b.Formulas[sheet]
+	if !ok {
+		return "", false
+	}
+	formula, ok := values[strings.ToUpper(cell)]
+	return formula, ok
+}
+
 func (b *Workbook) ClearSheetTypedValues(sheet string) {
 	if b.TypedValues != nil {
 		delete(b.TypedValues, sheet)
 	}
+	if b.StyleValues != nil {
+		delete(b.StyleValues, sheet)
+	}
+	if b.Formulas != nil {
+		delete(b.Formulas, sheet)
+	}
+	if b.InsertedRows != nil {
+		delete(b.InsertedRows, sheet)
+	}
 }
 
 func (b *Workbook) ClearRowTypedValues(sheet string, rowIdx int) {
-	if b.TypedValues == nil || rowIdx < 0 {
-		return
-	}
-	values, ok := b.TypedValues[sheet]
-	if !ok {
-		return
-	}
 	rowNum := rowIdx + 1
-	for cell := range values {
-		_, row, err := excelize.CellNameToCoordinates(cell)
-		if err == nil && row == rowNum {
-			delete(values, cell)
+	if b.TypedValues != nil {
+		if values, ok := b.TypedValues[sheet]; ok {
+			for cell := range values {
+				_, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil && row == rowNum {
+					delete(values, cell)
+				}
+			}
+		}
+	}
+	if b.StyleValues != nil {
+		if values, ok := b.StyleValues[sheet]; ok {
+			for cell := range values {
+				_, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil && row == rowNum {
+					delete(values, cell)
+				}
+			}
+		}
+	}
+	if b.Formulas != nil {
+		if values, ok := b.Formulas[sheet]; ok {
+			for cell := range values {
+				_, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil && row == rowNum {
+					delete(values, cell)
+				}
+			}
 		}
 	}
 }
 
 func (b *Workbook) ClearCellTypedValue(sheet string, rowIdx, colIdx int) {
-	if b.TypedValues == nil || rowIdx < 0 || colIdx < 0 {
-		return
-	}
-	values, ok := b.TypedValues[sheet]
-	if !ok {
-		return
-	}
 	cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
 	if err != nil {
 		return
 	}
-	delete(values, strings.ToUpper(cell))
+	cellUpper := strings.ToUpper(cell)
+	if b.TypedValues != nil {
+		if values, ok := b.TypedValues[sheet]; ok {
+			delete(values, cellUpper)
+		}
+	}
+}
+
+func (b *Workbook) ClearCellFormula(sheet string, rowIdx, colIdx int) {
+	cell, err := excelize.CoordinatesToCellName(colIdx+1, rowIdx+1)
+	if err != nil {
+		return
+	}
+	cellUpper := strings.ToUpper(cell)
+	if b.Formulas != nil {
+		if values, ok := b.Formulas[sheet]; ok {
+			delete(values, cellUpper)
+		}
+	}
 }
 
 func (s *Sheet) EnsureSize(rowIdx, colIdx int) {
@@ -287,4 +386,58 @@ func SheetRowsCount(sheets []Sheet) int {
 		total += len(sheet.Rows)
 	}
 	return total
+}
+
+func (b *Workbook) ShiftRowsDown(sheet string, startRow int) {
+	if b.TypedValues != nil {
+		if values, ok := b.TypedValues[sheet]; ok {
+			newValues := make(map[string]any)
+			for cell, val := range values {
+				col, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil {
+					if row-1 >= startRow {
+						newCell, _ := excelize.CoordinatesToCellName(col, row+1)
+						newValues[strings.ToUpper(newCell)] = val
+					} else {
+						newValues[cell] = val
+					}
+				}
+			}
+			b.TypedValues[sheet] = newValues
+		}
+	}
+	if b.StyleValues != nil {
+		if values, ok := b.StyleValues[sheet]; ok {
+			newValues := make(map[string]CellStyle)
+			for cell, val := range values {
+				col, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil {
+					if row-1 >= startRow {
+						newCell, _ := excelize.CoordinatesToCellName(col, row+1)
+						newValues[strings.ToUpper(newCell)] = val
+					} else {
+						newValues[cell] = val
+					}
+				}
+			}
+			b.StyleValues[sheet] = newValues
+		}
+	}
+	if b.Formulas != nil {
+		if values, ok := b.Formulas[sheet]; ok {
+			newValues := make(map[string]string)
+			for cell, val := range values {
+				col, row, err := excelize.CellNameToCoordinates(cell)
+				if err == nil {
+					if row-1 >= startRow {
+						newCell, _ := excelize.CoordinatesToCellName(col, row+1)
+						newValues[strings.ToUpper(newCell)] = val
+					} else {
+						newValues[cell] = val
+					}
+				}
+			}
+			b.Formulas[sheet] = newValues
+		}
+	}
 }

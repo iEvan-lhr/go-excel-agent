@@ -20,6 +20,10 @@ type BatchUpdateRequest = engine.BatchUpdateRequest
 type UpdateAction = engine.UpdateAction
 type AggregateRequest = engine.AggregateRequest
 type Scope = engine.Scope
+type UpdateStyleRequest = engine.UpdateStyleRequest
+type WriteFormulaRequest = engine.WriteFormulaRequest
+type InsertRowRequest = engine.InsertRowRequest
+type ExportMarkdownRequest = engine.ExportMarkdownRequest
 
 type Command = engine.Command
 type Target = engine.Target
@@ -30,6 +34,10 @@ type CreateSheetArgs = engine.CreateSheetArgs
 type InsertCellsArgs = engine.InsertCellsArgs
 type BatchUpdateArgs = engine.BatchUpdateArgs
 type AggregateArgs = engine.AggregateArgs
+type UpdateStyleArgs = engine.UpdateStyleArgs
+type WriteFormulaArgs = engine.WriteFormulaArgs
+type InsertRowArgs = engine.InsertRowArgs
+type ExportMarkdownArgs = engine.ExportMarkdownArgs
 
 type FindResult = workbook.FindResult
 type Diff = workbook.Diff
@@ -78,6 +86,13 @@ type ConfirmationPolicy = ops.ConfirmationPolicy
 type OperationSpec = ops.OperationSpec
 type OperationExample = ops.OperationExample
 type OperationRegistry = ops.Registry
+type PromptLevel = memory.PromptLevel
+type PromptTemplate = memory.PromptTemplate
+type IntentPromptData = memory.IntentPromptData
+type ArgsPromptData = memory.ArgsPromptData
+type RepairPromptData = memory.RepairPromptData
+
+var HierarchicalPrompts = memory.HierarchicalPrompts
 
 var WithColumnTagger = memory.WithColumnTagger
 var WithIntentGeneralizer = memory.WithIntentGeneralizer
@@ -295,11 +310,46 @@ func (b *Book) Aggregate(ctx context.Context, req AggregateRequest) (float64, er
 	return b.engine.Aggregate(ctx, req)
 }
 
+func (b *Book) UpdateStyle(ctx context.Context, req UpdateStyleRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.UpdateStyle(ctx, req)
+}
+
+func (b *Book) WriteFormula(ctx context.Context, req WriteFormulaRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.WriteFormula(ctx, req)
+}
+
+func (b *Book) InsertRow(ctx context.Context, req InsertRowRequest) (*Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, err
+	}
+	return b.engine.InsertRow(ctx, req)
+}
+
+func (b *Book) ExportMarkdown(ctx context.Context, outputDir string) error {
+	if err := b.ensureEngine(); err != nil {
+		return err
+	}
+	return b.engine.ExportMarkdown(ctx, outputDir)
+}
+
 func (b *Book) Execute(ctx context.Context, cmd Command) (any, *Diff, error) {
 	if err := b.ensureEngine(); err != nil {
 		return nil, nil, err
 	}
 	return b.engine.Execute(ctx, cmd)
+}
+
+func (b *Book) ExecuteSequence(ctx context.Context, cmds []Command) ([]any, *Diff, error) {
+	if err := b.ensureEngine(); err != nil {
+		return nil, nil, err
+	}
+	return b.engine.ExecuteSequence(ctx, cmds)
 }
 
 func (b *Book) ExecuteAndRemember(ctx context.Context, userRequest string, cmd Command) (any, *Diff, OperationRecord, error) {
@@ -363,6 +413,10 @@ func (b *Book) BuildContextCapsule(ctx context.Context, req ContextRequest) (Con
 		req.WorkbookID = b.currentWorkbookID()
 	}
 	return b.Memory().BuildContextCapsuleContext(ctx, b.engine.Book, req)
+}
+
+func (b *Book) RenderPrompt(level PromptLevel, data any) (ModelRequest, error) {
+	return b.Memory().RenderPrompt(level, data)
 }
 
 func (b *Book) RememberOperation(ctx context.Context, record OperationRecord) (OperationRecord, ExecutionSummary, error) {

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/iEvan-lhr/go-excel-agent/engine"
@@ -214,4 +215,38 @@ func generatedRows(count int) [][]string {
 		})
 	}
 	return rows
+}
+
+func TestStoreRenderPrompt(t *testing.T) {
+	store := NewStore()
+
+	intentRequest, err := store.RenderPrompt(LevelIntent, IntentPromptData{
+		ExecutionHistory: "1. read inventory details [success]",
+		Query:            "create a sheet called Summary and copy data",
+	})
+	if err != nil {
+		t.Fatalf("render intent prompt failed: %v", err)
+	}
+	if !strings.Contains(intentRequest.SystemPrompt, "1. read inventory details") {
+		t.Fatalf("system prompt does not contain history: %s", intentRequest.SystemPrompt)
+	}
+	if !strings.Contains(intentRequest.Prompt, "create a sheet called Summary") {
+		t.Fatalf("prompt does not contain query: %s", intentRequest.Prompt)
+	}
+
+	argsRequest, err := store.RenderPrompt(LevelArgs, ArgsPromptData{
+		Op:             "update_style",
+		OpSchema:       "style: {bold: bool, fontColor: string}",
+		ContextCapsule: "A1: Standard Keyboard",
+		Query:          "make cell A1 bold",
+	})
+	if err != nil {
+		t.Fatalf("render args prompt failed: %v", err)
+	}
+	if !strings.Contains(argsRequest.SystemPrompt, "update_style") {
+		t.Fatalf("system prompt does not contain op: %s", argsRequest.SystemPrompt)
+	}
+	if !strings.Contains(argsRequest.SystemPrompt, "style: {bold: bool, fontColor: string}") {
+		t.Fatalf("system prompt does not contain schema: %s", argsRequest.SystemPrompt)
+	}
 }

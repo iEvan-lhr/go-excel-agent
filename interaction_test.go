@@ -112,3 +112,34 @@ func TestHandleInteractionExecutesExplicitReadOnlyCommand(t *testing.T) {
 		t.Fatal("expected state events")
 	}
 }
+
+func TestHandleInteractionFinish(t *testing.T) {
+	ctx := context.Background()
+	book := New()
+	if err := book.engine.LoadSheets(ctx, map[string][][]any{
+		"Data": {
+			{"品名", "单价"},
+			{"标准键盘", 1200},
+		},
+	}); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if _, err := book.IndexMemory(ctx, "wb1"); err != nil {
+		t.Fatalf("index failed: %v", err)
+	}
+
+	result, err := book.HandleInteraction(ctx, InteractionRequest{
+		WorkbookID:  "wb1",
+		UserRequest: "完成了，结束吧",
+		Command: &Command{
+			Op:     "finish",
+			Target: Target{Sheet: "Data"},
+		},
+	}, InteractionOptions{})
+	if err != nil {
+		t.Fatalf("handle failed: %v", err)
+	}
+	if result.Status != StateFinished {
+		t.Fatalf("expected finished state, got %s", result.Status)
+	}
+}

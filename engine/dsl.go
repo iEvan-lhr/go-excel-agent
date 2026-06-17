@@ -1,5 +1,9 @@
 package engine
 
+import (
+	"github.com/iEvan-lhr/go-excel-agent/workbook"
+)
+
 type Command struct {
 	Op     string `json:"op"`
 	Target Target `json:"target,omitempty"`
@@ -105,4 +109,45 @@ type BatchUpdateArgs struct {
 type AggregateArgs struct {
 	Column string `json:"column,omitempty"`
 	Type   string `json:"type,omitempty"`
+}
+
+type UpdateStyleRequest struct {
+	Sheet string             `json:"sheet,omitempty"`
+	Cell  string             `json:"cell,omitempty"`
+	Range string             `json:"range,omitempty"`
+	Scope *Scope             `json:"scope,omitempty"`
+	Style workbook.CellStyle `json:"style"`
+}
+
+type UpdateStyleArgs struct {
+	Style workbook.CellStyle `json:"style"`
+}
+
+type WriteFormulaRequest struct {
+	Sheet   string `json:"sheet,omitempty"`
+	Cell    string `json:"cell,omitempty"`
+	Formula string `json:"formula,omitempty"`
+}
+
+type WriteFormulaArgs struct {
+	Formula string `json:"formula,omitempty"`
+}
+
+type InsertRowRequest struct {
+	Sheet  string `json:"sheet,omitempty"`
+	Cell   string `json:"cell,omitempty"`
+	Scope  *Scope `json:"scope,omitempty"`
+	Values []any  `json:"values,omitempty"`
+}
+
+type InsertRowArgs struct {
+	Values []any `json:"values,omitempty"`
+}
+
+type ExportMarkdownRequest struct {
+	OutputDir string `json:"output_dir"`
+}
+
+type ExportMarkdownArgs struct {
+	OutputDir string `json:"output_dir"`
 }
