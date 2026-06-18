@@ -228,6 +228,17 @@ func (e *Engine) Execute(ctx context.Context, cmd Command) (any, *workbook.Diff,
 		}
 		err = e.ExportMarkdown(ctx, outDir)
 		return nil, &workbook.Diff{}, err
+	case "export_json":
+		args, err := decodeCommandArgs[ExportJSONArgs](cmd.Args)
+		if err != nil {
+			return nil, nil, err
+		}
+		outDir := args.OutputDir
+		if outDir == "" {
+			outDir = cmd.Target.SearchQuery
+		}
+		err = e.ExportJSON(ctx, outDir, args.OneFile)
+		return nil, &workbook.Diff{}, err
 	case "finish":
 		return nil, &workbook.Diff{}, nil
 	default:

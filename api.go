@@ -24,6 +24,7 @@ type UpdateStyleRequest = engine.UpdateStyleRequest
 type WriteFormulaRequest = engine.WriteFormulaRequest
 type InsertRowRequest = engine.InsertRowRequest
 type ExportMarkdownRequest = engine.ExportMarkdownRequest
+type ExportJSONRequest = engine.ExportJSONRequest
 
 type Command = engine.Command
 type Target = engine.Target
@@ -38,6 +39,7 @@ type UpdateStyleArgs = engine.UpdateStyleArgs
 type WriteFormulaArgs = engine.WriteFormulaArgs
 type InsertRowArgs = engine.InsertRowArgs
 type ExportMarkdownArgs = engine.ExportMarkdownArgs
+type ExportJSONArgs = engine.ExportJSONArgs
 
 type FindResult = workbook.FindResult
 type Diff = workbook.Diff
@@ -336,6 +338,13 @@ func (b *Book) ExportMarkdown(ctx context.Context, outputDir string) error {
 		return err
 	}
 	return b.engine.ExportMarkdown(ctx, outputDir)
+}
+
+func (b *Book) ExportJSON(ctx context.Context, outputDir string, oneFile bool) error {
+	if err := b.ensureEngine(); err != nil {
+		return err
+	}
+	return b.engine.ExportJSON(ctx, outputDir, oneFile)
 }
 
 func (b *Book) Execute(ctx context.Context, cmd Command) (any, *Diff, error) {

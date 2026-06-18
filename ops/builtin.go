@@ -180,5 +180,17 @@ func BuiltinSpecs() []OperationSpec {
 			Tags:               []string{"write", "export", "markdown"},
 			RequiredArgs:       []string{"output_dir"},
 		},
+		{
+			Op:                 "export_json",
+			Version:            "v1",
+			Level:              LevelExternalWrite,
+			Risk:               RiskMedium,
+			ConfirmationPolicy: ConfirmSometimes,
+			Description:        "Export all sheets in the workbook to separate json files or a single json file in the specified directory.",
+			UserPhrases:        []string{"导出为json", "保存成json文件", "导出所有sheet到json"},
+			Tags:               []string{"write", "export", "json"},
+			RequiredArgs:       []string{"output_dir"},
+			OptionalArgs:       []string{"one_file"},
+		},
 	}
 }

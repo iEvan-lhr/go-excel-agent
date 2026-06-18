@@ -151,3 +151,13 @@ type ExportMarkdownRequest struct {
 type ExportMarkdownArgs struct {
 	OutputDir string `json:"output_dir"`
 }
+
+type ExportJSONRequest struct {
+	OutputDir string `json:"output_dir"`
+	OneFile   bool   `json:"one_file,omitempty"`
+}
+
+type ExportJSONArgs struct {
+	OutputDir string `json:"output_dir"`
+	OneFile   bool   `json:"one_file,omitempty"`
+}

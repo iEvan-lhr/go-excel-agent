@@ -440,3 +440,179 @@ func TestBookExportMarkdownFlow(t *testing.T) {
 		t.Fatalf("expected Sheet2.md to exist in outputDir2: %v", err)
 	}
 }
+
+func TestBookExportJSONFlow(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	excelPath := filepath.Join(tempDir, "source.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetCellStr("Sheet1", "A1", "Name"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "B1", "Age"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "A2", "Alice"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellInt("Sheet1", "B2", 30); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	// Create another sheet
+	_, err := file.NewSheet("Sheet2")
+	if err != nil {
+		t.Fatalf("new sheet failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A1", "Item"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A2", "Book"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	if err := file.SaveAs(excelPath); err != nil {
+		t.Fatalf("save excel failed: %v", err)
+	}
+	_ = file.Close()
+
+	// 1. Test using direct API Book.ExportJSON
+	book, err := Open(ctx, excelPath)
+	if err != nil {
+		t.Fatalf("open book failed: %v", err)
+	}
+
+	outputDir1 := filepath.Join(tempDir, "json_out_1")
+	err = book.ExportJSON(ctx, outputDir1, false)
+	if err != nil {
+		t.Fatalf("ExportJSON failed: %v", err)
+	}
+
+	// Check if JSON files are written correctly
+	json1Path := filepath.Join(outputDir1, "Sheet1.json")
+	content1, err := os.ReadFile(json1Path)
+	if err != nil {
+		t.Fatalf("read Sheet1.json failed: %v", err)
+	}
+	if !strings.Contains(string(content1), `"Name": "Sheet1"`) || !strings.Contains(string(content1), `"Alice"`) {
+		t.Errorf("unexpected content in Sheet1.json:\n%s", string(content1))
+	}
+
+	json2Path := filepath.Join(outputDir1, "Sheet2.json")
+	content2, err := os.ReadFile(json2Path)
+	if err != nil {
+		t.Fatalf("read Sheet2.json failed: %v", err)
+	}
+	if !strings.Contains(string(content2), `"Name": "Sheet2"`) || !strings.Contains(string(content2), `"Book"`) {
+		t.Errorf("unexpected content in Sheet2.json:\n%s", string(content2))
+	}
+
+	// 2. Test using DSL Book.Execute
+	outputDir2 := filepath.Join(tempDir, "json_out_2")
+	cmd := Command{
+		Op: "export_json",
+		Args: ExportJSONArgs{
+			OutputDir: outputDir2,
+		},
+	}
+	_, _, err = book.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute export_json failed: %v", err)
+	}
+
+	// Verify the files exist and contain content in outputDir2
+	if _, err := os.Stat(filepath.Join(outputDir2, "Sheet1.json")); err != nil {
+		t.Fatalf("expected Sheet1.json to exist in outputDir2: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir2, "Sheet2.json")); err != nil {
+		t.Fatalf("expected Sheet2.json to exist in outputDir2: %v", err)
+	}
+}
+
+func TestBookExportJSONOneFileFlow(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	excelPath := filepath.Join(tempDir, "source.xlsx")
+
+	file := excelize.NewFile()
+	if err := file.SetCellStr("Sheet1", "A1", "Name"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "B1", "Age"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet1", "A2", "Alice"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellInt("Sheet1", "B2", 30); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	// Create another sheet
+	_, err := file.NewSheet("Sheet2")
+	if err != nil {
+		t.Fatalf("new sheet failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A1", "Item"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+	if err := file.SetCellStr("Sheet2", "A2", "Book"); err != nil {
+		t.Fatalf("set cell failed: %v", err)
+	}
+
+	if err := file.SaveAs(excelPath); err != nil {
+		t.Fatalf("save excel failed: %v", err)
+	}
+	_ = file.Close()
+
+	// 1. Test using direct API Book.ExportJSON with oneFile = true
+	book, err := Open(ctx, excelPath)
+	if err != nil {
+		t.Fatalf("open book failed: %v", err)
+	}
+
+	outputFile := filepath.Join(tempDir, "onefile_out", "custom_name.json")
+	err = book.ExportJSON(ctx, outputFile, true)
+	if err != nil {
+		t.Fatalf("ExportJSON failed: %v", err)
+	}
+
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("read custom_name.json failed: %v", err)
+	}
+	strContent := string(content)
+	if !strings.Contains(strContent, `"Name": "Sheet1"`) || !strings.Contains(strContent, `"Name": "Sheet2"`) {
+		t.Errorf("expected both sheet names in single custom_name.json: %s", strContent)
+	}
+
+	// 2. Test using DSL Book.Execute with one_file = true
+	outputDir2 := filepath.Join(tempDir, "onefile_out_2")
+	cmd := Command{
+		Op: "export_json",
+		Args: ExportJSONArgs{
+			OutputDir: outputDir2,
+			OneFile:   true,
+		},
+	}
+	_, _, err = book.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute export_json failed: %v", err)
+	}
+
+	// Verify that a workbook.json file exists inside outputDir2
+	workbookPath := filepath.Join(outputDir2, "workbook.json")
+	if _, err := os.Stat(workbookPath); err != nil {
+		t.Fatalf("expected workbook.json to exist: %v", err)
+	}
+
+	content2, err := os.ReadFile(workbookPath)
+	if err != nil {
+		t.Fatalf("read workbook.json failed: %v", err)
+	}
+	strContent2 := string(content2)
+	if !strings.Contains(strContent2, `"Name": "Sheet1"`) || !strings.Contains(strContent2, `"Name": "Sheet2"`) {
+		t.Errorf("expected both sheet names in single workbook.json: %s", strContent2)
+	}
+}
